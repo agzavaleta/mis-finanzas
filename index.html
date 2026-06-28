@@ -295,6 +295,9 @@ const addMonths = (n) => {
   return d.toLocaleDateString('es-CL',{month:'short',year:'numeric'});
 };
 
+// ── App version ───────────────────────────────────────────────────────────────
+const APP_VERSION = '1.0.0';
+
 // ── Default state ─────────────────────────────────────────────────────────────
 const DEFAULT = {
   settings:{
@@ -304,6 +307,7 @@ const DEFAULT = {
   debts:[],
   wallets:[],
   budget:[],
+  varCategories:[],
   expenses:[],
   nextId:1,
 };
@@ -449,21 +453,21 @@ const ChartCanvas = ({id,config,height=220}) => {
 //  PAGES
 // ═══════════════════════════════════════════════════════════════════════════════
 
+// ── Draggable list hook ────────────────────────────────────────────────────────
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 const Dashboard = ({state, notify}) => {
-  const {settings,wallets,budget,expenses,debts,accounts} = state;
+  const {settings,wallets,budget,varCategories,expenses,debts,accounts} = state;
   const accs = accounts || [];
-  // Available = sum of all accounts (banks + cash)
   const totalAvailable = accs.reduce((a,x)=>a+x.balance, 0);
-  // Savings = sum of savings goal balances
   const totalSavings = wallets.reduce((a,w)=>a+w.balance,0);
-  // Net worth = available accounts + savings
   const netWorth = totalAvailable + totalSavings;
 
   const monthlySavings = wallets.reduce((a,w)=>a+w.monthly,0);
-  const totalBudget = budget.reduce((a,b)=>a+b.amount,0);
+  const totalFixed = budget.reduce((a,b)=>a+b.amount,0);
+  const curMonth = new Date().toISOString().slice(0,7);
+  const totalVariable = (expenses||[]).filter(e=>e.type==='expense'&&e.date.startsWith(curMonth)).reduce((a,e)=>a+e.amount,0);
   const savingsRate = settings.salary ? Math.round((monthlySavings/settings.salary)*100) : 0;
-  const remaining = settings.salary - totalBudget - monthlySavings;
+  const remaining = settings.salary - totalFixed - monthlySavings;
   const totalDebt = (debts||[]).filter(d=>d.status!=='pagada').reduce((a,d)=>a+(d.total-d.paid),0);
   const monthlyDebt = (debts||[]).filter(d=>d.status!=='pagada').reduce((a,d)=>a+d.monthly,0);
 
@@ -571,7 +575,7 @@ const Dashboard = ({state, notify}) => {
         {[
           {label:'Deuda Restante',value:totalDebt,icon:'debt',color:'icon-red',sub:`${fmt(monthlyDebt)}/mes`},
           {label:'Ahorro Mensual',value:monthlySavings,icon:'wallet',color:'icon-purple',sub:`Tasa: ${savingsRate}%`},
-          {label:'Gastos Fijos',value:totalBudget,icon:'budget',color:'icon-amber',sub:`${pct(totalBudget,settings.salary)}% del sueldo`},
+          {label:'Gastos Fijos',value:totalFixed,icon:'budget',color:'icon-amber',sub:`${pct(totalFixed,settings.salary)}% del sueldo`},
           {label:'Sobrante Mensual',value:remaining,icon:'target',color:remaining>=0?'icon-green':'icon-amber',sub:'Después de gastos y ahorro'},
         ].map((k,i)=>(
           <div key={i} className="card">
@@ -588,7 +592,7 @@ const Dashboard = ({state, notify}) => {
           <div><div className="section-title">Distribución del Sueldo</div><div className="section-sub">{fmt(settings.salary)} mensual</div></div>
         </div>
         {[
-          {label:'Presupuesto gastos',value:totalBudget,total:settings.salary,color:'fill-red'},
+          {label:'Gastos fijos',value:totalFixed,total:settings.salary,color:'fill-red'},
           {label:'Ahorro mensual',value:monthlySavings,total:settings.salary,color:'fill-green'},
           {label:'Disponible',value:Math.max(0,remaining),total:settings.salary,color:'fill-blue'},
         ].map((r,i)=>(
@@ -603,7 +607,6 @@ const Dashboard = ({state, notify}) => {
       </div>
 
       <div className="grid-2">
-        {/* Debt summary */}
         <div className="card">
           <div className="section-header mb-4">
             <div><div className="section-title">Seguimiento de Deudas</div></div>
@@ -615,8 +618,7 @@ const Dashboard = ({state, notify}) => {
               <div key={d.id} className="flex items-center gap-3 mb-3">
                 <div style={{flex:1}}>
                   <div className="flex justify-between text-sm mb-1">
-                    <span className="font-semibold">{d.name}</span>
-                    <span>{fmt(rem)}</span>
+                    <span className="font-semibold">{d.name}</span><span>{fmt(rem)}</span>
                   </div>
                   <ProgressBar value={d.paid} max={d.total} color="fill-red" />
                 </div>
@@ -626,17 +628,14 @@ const Dashboard = ({state, notify}) => {
           })}
           {!(debts||[]).length && <div className="text-sm text-gray">Sin deudas registradas</div>}
         </div>
-
-        {/* Wallets summary */}
         <div className="card">
           <div className="section-title mb-4">Ahorros</div>
           {wallets.map(w=>(
-            <div key={w.id} className="flex items-center gap-3 mb-3">
+            <div key={w.id} className="flex items-center gap-3 mb-5">
               <span style={{fontSize:20}}>{w.emoji}</span>
               <div style={{flex:1}}>
                 <div className="flex justify-between text-sm mb-1">
-                  <span className="font-semibold">{w.name}</span>
-                  <span>{fmt(w.balance)}</span>
+                  <span className="font-semibold">{w.name}</span><span>{fmt(w.balance)}</span>
                 </div>
                 <ProgressBar value={w.balance} max={w.goal} />
               </div>
@@ -787,6 +786,7 @@ const AccountsPage = ({state, setState, notify}) => {
 
 // ── Chilean banks list + searchable select ────────────────────────────────────
 const CL_BANKS = [
+  'Efectivo',
   'Banco de Chile','Banco Santander','Banco BCI','Banco Estado','Banco Falabella',
   'Banco Ripley','Banco Security','Banco Itaú','Banco BICE','Banco Internacional',
   'Banco Consorcio','Banco BTG Pactual','Banco Scotiabank','HSBC Bank Chile',
@@ -1004,7 +1004,7 @@ const Budget = ({state, setState, notify}) => {
     if(!form.name||!form.amount) return;
     setState(s=>({...s,budget:[...s.budget,{...form,id:s.nextId}],nextId:s.nextId+1}));
     setForm({name:'',amount:0});
-    notify('Categoría agregada','success');
+    notify('Gasto fijo agregado','success');
   };
 
   const updateItem = (id,key,val) => {
@@ -1012,10 +1012,10 @@ const Budget = ({state, setState, notify}) => {
   };
 
   const delItem = async (b) => {
-    const ok = await ask({title:'Eliminar categoría',message:`¿Eliminar "${b.name}" del presupuesto?`,confirmLabel:'Eliminar'});
+    const ok = await ask({title:'Eliminar gasto fijo',message:`¿Eliminar "${b.name}"?`,confirmLabel:'Eliminar'});
     if(!ok) return;
     setState(s=>({...s,budget:s.budget.filter(x=>x.id!==b.id)}));
-    notify('Categoría eliminada','success');
+    notify('Gasto fijo eliminado','success');
   };
 
   const chartData = {
@@ -1033,7 +1033,7 @@ const Budget = ({state, setState, notify}) => {
       <div className="grid-2 mb-6">
         {[
           {label:'Sueldo',value:settings.salary,color:'text-green'},
-          {label:'Total gastos',value:totalBudget,color:'text-red'},
+          {label:'Total fijos',value:totalBudget,color:'text-red'},
           {label:'Total ahorro',value:totalSavings,color:'text-green'},
           {label:'Disponible',value:remaining,color:remaining>=0?'text-green':'text-red'},
         ].map((k,i)=>(
@@ -1047,7 +1047,7 @@ const Budget = ({state, setState, notify}) => {
       <div className="grid-2 gap-4">
         <div className="card">
           <div className="section-header mb-4">
-            <div className="section-title">Categorías de Gastos</div>
+            <div className="section-title">Gastos Fijos</div>
           </div>
           {budget.map(b=>(
             <div key={b.id} className="flex items-center gap-3 mb-3">
@@ -1070,7 +1070,7 @@ const Budget = ({state, setState, notify}) => {
           ))}
           <div className="divider" />
           <div className="flex gap-2">
-            <input className="form-input" placeholder="Nueva categoría" value={form.name} onChange={e=>setForm(x=>({...x,name:e.target.value}))} style={{flex:1}} />
+            <input className="form-input" placeholder="Nombre gasto" value={form.name} onChange={e=>setForm(x=>({...x,name:e.target.value}))} style={{flex:1}} />
             <input className="form-input" type="number" placeholder="Monto" value={form.amount||''} onChange={e=>setForm(x=>({...x,amount:Number(e.target.value)}))} style={{width:120}} />
             <button className="btn btn-primary" onClick={addItem}><Icon name="plus" size={14}/></button>
           </div>
@@ -1090,30 +1090,37 @@ const Budget = ({state, setState, notify}) => {
 
 // ── Expense Tracker ───────────────────────────────────────────────────────────
 const ExpenseTracker = ({state, setState, notify}) => {
-  const {expenses, budget, settings} = state;
-  const [form, setForm] = useState({date:today(),category:'',description:'',amount:0,method:'Efectivo',account:'',notes:''});
+  const {expenses, varCategories, settings} = state;
+  const [form, setForm] = useState({date:today(),description:'',amount:0,notes:''});
   const [incomeForm, setIncomeForm] = useState({date:today(),description:'',amount:0,account:''});
   const [filter, setFilter] = useState({month:'',category:'',q:''});
   const [tab, setTab] = useState('list');
+  const [newCat, setNewCat] = useState('');
   const {ask, ConfirmNode} = useConfirm();
 
   const accounts = (state.accounts||[]);
-  const categories = [...new Set(budget.map(b=>b.name))];
+  const categories = (varCategories||[]).map(c=>c.name);
   const methods = ['Efectivo','Débito','Crédito','Transferencia'];
 
+  const addCategory = () => {
+    if(!newCat.trim()) return;
+    setState(s=>({...s, varCategories:[...(s.varCategories||[]),{id:s.nextId,name:newCat.trim()}], nextId:s.nextId+1}));
+    setNewCat('');
+    notify('Categoría variable agregada','success');
+  };
+
+  const delCategory = async (c) => {
+    const ok = await ask({title:'Eliminar categoría variable',message:`¿Eliminar "${c.name}"?`,confirmLabel:'Eliminar'});
+    if(!ok) return;
+    setState(s=>({...s, varCategories:(s.varCategories||[]).filter(x=>x.id!==c.id)}));
+    notify('Categoría variable eliminada','success');
+  };
+
   const add = () => {
-    if(!form.amount||!form.category) { notify('Completa categoría y monto','warn'); return; }
-    setState(s=>{
-      const next = {...s, expenses:[{...form,type:'expense',id:s.nextId},...s.expenses], nextId:s.nextId+1};
-      if(form.account){
-        next.accounts = (s.accounts||[]).map(a=>
-          a.id===Number(form.account) ? {...a, balance: a.balance - form.amount} : a
-        );
-      }
-      return next;
-    });
+    if(!form.amount) { notify('Ingresa el monto','warn'); return; }
+    setState(s=>({...s, expenses:[{...form,type:'expense',id:s.nextId},...s.expenses], nextId:s.nextId+1}));
     setForm(f=>({...f,amount:0,description:'',notes:''}));
-    notify('Gasto registrado','success');
+    notify('Gasto variable registrado','success');
   };
 
   const addIncome = () => {
@@ -1134,43 +1141,20 @@ const ExpenseTracker = ({state, setState, notify}) => {
   };
 
   const del = async (e) => {
-    const ok = await ask({title:`Eliminar ${e.type==='income'?'ingreso':'gasto'}`,message:`¿Eliminar "${e.description||e.category}" por ${fmt(e.amount)}?`,confirmLabel:'Eliminar'});
+    const ok = await ask({title:`Eliminar ${e.type==='income'?'ingreso':'gasto variable'}`,message:`¿Eliminar "${e.description||'este registro'}" por ${fmt(e.amount)}?`,confirmLabel:'Eliminar'});
     if(!ok) return;
-    setState(s=>{
-      const next = {...s, expenses:s.expenses.filter(x=>x.id!==e.id)};
-      if(e.account){
-        next.accounts = (s.accounts||[]).map(a=>
-          a.id===Number(e.account)
-            ? {...a, balance: e.type==='income' ? a.balance - e.amount : a.balance + e.amount}
-            : a
-        );
-      }
-      return next;
-    });
-    notify(`${e.type==='income'?'Ingreso':'Gasto'} eliminado`,'success');
+    setState(s=>({...s, expenses:s.expenses.filter(x=>x.id!==e.id)}));
+    notify(`${e.type==='income'?'Ingreso':'Gasto variable'} eliminado`,'success');
   };
 
   const filtered = expenses.filter(e=>{
     if(e.type==='income') return false;
     if(filter.month && !e.date.startsWith(filter.month)) return false;
-    if(filter.category && e.category!==filter.category) return false;
-    if(filter.q && !(e.description+e.category+(e.notes||'')).toLowerCase().includes(filter.q.toLowerCase())) return false;
+    if(filter.q && !(e.description+(e.notes||'')).toLowerCase().includes(filter.q.toLowerCase())) return false;
     return true;
   });
 
   const total = filtered.reduce((a,e)=>a+e.amount,0);
-
-  // Chart data by category
-  const byCat = {};
-  filtered.forEach(e=>{ byCat[e.category]=(byCat[e.category]||0)+e.amount; });
-  const catChart = {
-    type:'bar',
-    data:{
-      labels:Object.keys(byCat),
-      datasets:[{data:Object.values(byCat),backgroundColor:COLORS,borderRadius:6,borderWidth:0}]
-    },
-    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{ticks:{callback:v=>fmt(v)},grid:{color:'#f3f4f6'}},x:{grid:{display:false}}}}
-  };
 
   // By month
   const byMonth = {};
@@ -1193,22 +1177,15 @@ const ExpenseTracker = ({state, setState, notify}) => {
       {ConfirmNode}
       {/* Add form */}
       <div className="card mb-6">
-        <div className="section-title mb-4">Registrar Gasto</div>
+        <div className="section-title mb-4">Registrar Gasto Variable</div>
         <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:12}}>
           <div className="form-group" style={{margin:0}}>
             <label className="form-label">Fecha</label>
             <input className="form-input" type="date" value={form.date} onChange={e=>setForm(f=>({...f,date:e.target.value}))} />
           </div>
           <div className="form-group" style={{margin:0}}>
-            <label className="form-label">Categoría</label>
-            <select className="form-input form-select" value={form.category} onChange={e=>setForm(f=>({...f,category:e.target.value}))}>
-              <option value="">Seleccionar...</option>
-              {categories.map(c=><option key={c}>{c}</option>)}
-            </select>
-          </div>
-          <div className="form-group" style={{margin:0}}>
-            <label className="form-label">Descripción</label>
-            <input className="form-input" placeholder="Descripción" value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} />
+            <label className="form-label">Nombre gasto</label>
+            <input className="form-input" placeholder="Nombre gasto" value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} />
           </div>
           <div className="form-group" style={{margin:0}}>
             <label className="form-label">Monto</label>
@@ -1220,13 +1197,6 @@ const ExpenseTracker = ({state, setState, notify}) => {
               {methods.map(m=><option key={m}>{m}</option>)}
             </select>
           </div>
-          <div className="form-group" style={{margin:0}}>
-            <label className="form-label">Débitar de cuenta</label>
-            <select className="form-input form-select" value={form.account} onChange={e=>setForm(f=>({...f,account:e.target.value}))}>
-              <option value="">Sin vincular</option>
-              {accounts.map(a=><option key={a.id} value={a.id}>{a.name} ({fmt(a.balance)})</option>)}
-            </select>
-          </div>
           <div className="form-group" style={{margin:0,alignSelf:'flex-end'}}>
             <button className="btn btn-primary w-full" onClick={add}><Icon name="plus" size={14}/> Agregar</button>
           </div>
@@ -1235,12 +1205,13 @@ const ExpenseTracker = ({state, setState, notify}) => {
 
       {/* Filters + tabs */}
       <div className="tab-group" style={{display:'inline-flex',marginBottom:16}}>
-        {['list','income','catChart','monthChart'].map(t=>(
+        {['list','income','monthChart'].map(t=>(
           <button key={t} className={`tab-btn ${tab===t?'active':''}`} onClick={()=>setTab(t)}>
-            {t==='list'?'Gastos':t==='income'?'Ingresos':t==='catChart'?'Por categoría':'Por mes'}
+            {t==='list'?'Variables':t==='income'?'Ingresos':'Por mes'}
           </button>
         ))}
       </div>
+
 
       {tab==='income' && (
         <div className="card mb-6">
@@ -1299,10 +1270,6 @@ const ExpenseTracker = ({state, setState, notify}) => {
         <>
           <div className="flex gap-3 mb-4">
             <input className="form-input" type="month" value={filter.month} onChange={e=>setFilter(f=>({...f,month:e.target.value}))} style={{width:160}} />
-            <select className="form-input form-select" value={filter.category} onChange={e=>setFilter(f=>({...f,category:e.target.value}))} style={{width:160}}>
-              <option value="">Todas categorías</option>
-              {categories.map(c=><option key={c}>{c}</option>)}
-            </select>
             <input className="form-input" placeholder="Buscar..." value={filter.q} onChange={e=>setFilter(f=>({...f,q:e.target.value}))} />
           </div>
           <div className="card">
@@ -1312,30 +1279,24 @@ const ExpenseTracker = ({state, setState, notify}) => {
             </div>
             <div className="table-wrap">
               <table>
-                <thead><tr><th>Fecha</th><th>Categoría</th><th>Descripción</th><th>Monto</th><th>Cuenta</th><th></th></tr></thead>
+                <thead><tr><th>Fecha</th><th>Nombre gasto</th><th>Monto</th><th></th></tr></thead>
                 <tbody>
-                  {filtered.length===0 && <tr><td colSpan={6} className="empty-state">Sin gastos registrados</td></tr>}
-                  {filtered.map(e=>{
-                    const acc = accounts.find(a=>a.id===Number(e.account));
-                    return (
+                  {filtered.length===0 && <tr><td colSpan={4} className="empty-state">Sin gastos registrados</td></tr>}
+                  {filtered.map(e=>(
                     <tr key={e.id}>
                       <td className="text-sm">{e.date}</td>
-                      <td><span className="badge badge-gray">{e.category}</span></td>
                       <td className="text-sm">{e.description}</td>
                       <td className="amount-negative">{fmt(e.amount)}</td>
-                      <td className="text-sm text-gray">{acc?.name||e.method||'—'}</td>
                       <td><button className="btn btn-danger btn-sm btn-icon" onClick={()=>del(e)}><Icon name="trash" size={12}/></button></td>
                     </tr>
-                    );
-                  })}
+                  ))}
                 </tbody>
               </table>
             </div>
           </div>
         </>
       )}
-      {tab==='catChart' && <div className="card"><div className="section-title mb-4">Gastos por Categoría</div><div className="chart-box-lg"><ChartCanvas id="cat-chart" config={catChart} height={280} /></div></div>}
-      {tab==='monthChart' && <div className="card"><div className="section-title mb-4">Gastos por Mes</div><div className="chart-box-lg"><ChartCanvas id="month-chart" config={monthChart} height={280} /></div></div>}
+      {tab==='monthChart' && <div className="card"><div className="section-title mb-4">Variables por Mes</div><div className="chart-box-lg"><ChartCanvas id="month-chart" config={monthChart} height={280} /></div></div>}
     </div>
   );
 };
@@ -1576,6 +1537,22 @@ const Settings = ({state, setState, notify}) => {
           <button className="btn btn-primary" onClick={()=>notify('Configuración guardada','success')}>Guardar</button>
         </div>
       </div>
+
+      <div className="card mt-4" style={{maxWidth:520}}>
+        <div className="section-title mb-3">Acerca de</div>
+        <div className="flex justify-between items-center text-sm">
+          <span className="text-gray">Versión</span>
+          <span className="font-semibold badge badge-gray">v{APP_VERSION}</span>
+        </div>
+        <div className="flex justify-between items-center text-sm mt-2">
+          <span className="text-gray">App</span>
+          <span className="font-semibold">Perita</span>
+        </div>
+        <div className="flex justify-between items-center text-sm mt-2">
+          <span className="text-gray">Almacenamiento</span>
+          <span className="font-semibold">LocalStorage</span>
+        </div>
+      </div>
     </div>
   );
 };
@@ -1587,8 +1564,8 @@ const PAGES = [
   {id:'dashboard',label:'Dashboard',icon:'dashboard'},
   {id:'accounts',label:'Cuentas',icon:'accounts'},
   {id:'wallets',label:'Ahorros',icon:'wallet'},
-  {id:'budget',label:'Presupuesto',icon:'budget'},
-  {id:'expenses',label:'Gastos',icon:'expense'},
+  {id:'budget',label:'Fijos',icon:'budget'},
+  {id:'expenses',label:'Variables',icon:'expense'},
   {id:'debt',label:'Deudas',icon:'debt'},
   {id:'settings',label:'Ajustes',icon:'settings'},
 ];
@@ -1597,8 +1574,8 @@ const PAGE_TITLES = {
   dashboard:['Dashboard','Resumen financiero del mes'],
   accounts:['Cuentas','Administra tus cuentas bancarias y efectivo'],
   wallets:['Ahorros','Administra tus metas de ahorro'],
-  budget:['Presupuesto','Gastos fijos mensuales'],
-  expenses:['Seguimiento de Gastos','Registra y filtra tus gastos'],
+  budget:['Gastos Fijos','Gastos recurrentes y fijos'],
+  expenses:['Gastos Variables','Registra y filtra tus gastos variables'],
   debt:['Deuda','Seguimiento y amortización'],
   settings:['Ajustes','Configura tus datos base'],
 };
@@ -1607,7 +1584,34 @@ const App = () => {
   const [page, setPage] = useState('dashboard');
   const [state, setStateRaw] = useState(load);
   const [notifs, setNotifs] = useState([]);
+  const [updateWaiting, setUpdateWaiting] = useState(null); // holds waiting SW
   let notifId = useRef(0);
+
+  // Service worker update detection
+  useEffect(() => {
+    if(!('serviceWorker' in navigator)) return;
+    navigator.serviceWorker.ready.then(reg => {
+      // Check for waiting worker on load
+      if(reg.waiting) setUpdateWaiting(reg.waiting);
+      // Listen for new worker installing
+      reg.addEventListener('updatefound', () => {
+        const newWorker = reg.installing;
+        if(!newWorker) return;
+        newWorker.addEventListener('statechange', () => {
+          if(newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+            setUpdateWaiting(newWorker);
+          }
+        });
+      });
+    });
+    // Reload once the new SW has taken over
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if(refreshing) return;
+      refreshing = true;
+      window.location.reload();
+    });
+  }, []);
 
   const setState = useCallback((updater) => {
     setStateRaw(prev => {
@@ -1657,6 +1661,23 @@ const App = () => {
   return (
     <div id="app">
       <Notifs notifs={notifs} dismiss={dismiss} />
+
+      {/* Update available modal */}
+      {updateWaiting && (
+        <div className="modal-backdrop" style={{zIndex:600}}>
+          <div className="modal" style={{maxWidth:380}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:28,marginBottom:8}}>🐷</div>
+            <div className="modal-title">Actualización disponible</div>
+            <p className="text-sm text-gray mb-6">Hay una nueva versión de Perita lista para instalar. Tus datos no se modificarán.</p>
+            <div className="flex gap-3 justify-between">
+              <button className="btn btn-ghost" onClick={()=>setUpdateWaiting(null)}>Después</button>
+              <button className="btn btn-primary" onClick={()=>{
+                updateWaiting.postMessage({type:'SKIP_WAITING'});
+              }}>Actualizar ahora</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Mobile bottom nav */}
       <nav className="mobile-nav">

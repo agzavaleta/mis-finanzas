@@ -1,5 +1,10 @@
 const CACHE = 'perita-v1';
 
+// Handle skip waiting message from the app
+self.addEventListener('message', e => {
+  if(e.data && e.data.type === 'SKIP_WAITING') self.skipWaiting();
+});
+
 const PRECACHE = [
   '/index.html',
   '/manifest.json',
@@ -19,7 +24,7 @@ self.addEventListener('install', e => {
   e.waitUntil(
     caches.open(CACHE)
       .then(c => c.addAll(PRECACHE))
-      .then(() => self.skipWaiting())
+  );
   );
 });
 
